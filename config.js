@@ -1,4 +1,6 @@
 const BINGO_CONFIG = {
+  supabaseUrl: "",
+  supabaseAnonKey: "",
   "settings": {
     "theme": "dark",
     "accentColor": "#89b4fa"
