@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dev Daily Bingo (Serverless)</title>
+    <!-- HIER WIRD DIE CONFIG EXTERN GELADEN -->
+    <script src="config.js"></script>
+    <style>
+        :root {
+            /* Fallback-Variablen, werden per JS überschrieben */
+            --bg-color: #1e1e2e;
+            --card-bg: #252538;
+            --text-color: #cdd6f4;
+            --accent: #89b4fa;
+            --checked-bg: #a6e3a1;
+            --checked-text: #11111b;
+            --border-color: #45475a;
+            --bingo-color: #f9e2af;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        h1 { margin-bottom: 5px; color: var(--accent); }
+        .seed-row { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; justify-content: center; }
+        .seed-display { font-size: 0.8rem; color: #6c7086; }
+        .link-btn { background: transparent; color: var(--accent); border: 1px solid var(--accent); padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; cursor: pointer; width: auto; margin: 0; font-weight: normal; }
+        .link-btn:hover { background: var(--accent); color: #11111b; opacity: 1; }
+
+        .container { display: flex; flex-wrap: wrap; gap: 30px; justify-content: center; width: 100%; max-width: 1200px; }
+
+        .setup-panel { flex: 1; min-width: 300px; max-width: 400px; background: var(--card-bg); padding: 20px; border-radius: 12px; border: 1px solid var(--border-color); height: fit-content; order: 2; transition: all 0.2s; overflow: hidden; }
+        .setup-panel h3 { display: flex; align-items: center; justify-content: space-between; margin-top: 0; white-space: nowrap; }
+        .toggle-btn { background: none; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-color); cursor: pointer; width: auto; margin: 0; padding: 6px; line-height: 0; display: flex; align-items: center; justify-content: center; }
+        .toggle-btn:hover { border-color: var(--accent); opacity: 1; }
+        .toggle-btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+
+        /* Eingeklappt: Panel schrumpft auf einen schmalen Streifen, gibt den Platz für das Board frei */
+        .setup-panel.collapsed { flex: 0 0 auto; min-width: 0; max-width: 48px; width: 48px; padding: 12px 8px; }
+        .setup-panel.collapsed .setup-body,
+        .setup-panel.collapsed .panel-title-text { display: none; }
+        .setup-hint { font-size: 0.75rem; color: #6c7086; margin: 0 0 10px; }
+
+        textarea { width: 100%; height: 260px; background: rgba(0,0,0,0.2); color: var(--text-color); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; box-sizing: border-box; resize: vertical; font-family: monospace; }
+        button { background: var(--accent); color: #11111b; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: bold; margin-top: 10px; width: 100%; transition: opacity 0.2s; }
+        button:hover { opacity: 0.9; }
+        button.reset-btn { background: #f38ba8; margin-top: 15px; }
+
+        .board-panel { flex: 2; min-width: 350px; display: flex; flex-direction: column; align-items: center; order: 1; }
+
+        .bingo-banner { display: none; background: var(--bingo-color); color: #11111b; font-weight: bold; padding: 10px 20px; border-radius: 8px; margin-bottom: 15px; animation: pulse 1s ease-in-out infinite alternate; text-align: center; }
+        @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.04); } }
+
+        .bingo-grid { display: grid; gap: 10px; width: 100%; max-width: 600px; }
+
+        .bingo-cell {
+            background: var(--card-bg);
+            border: 2px solid var(--border-color);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s;
+            word-break: break-word;
+            aspect-ratio: 1 / 1;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        .bingo-cell:hover { border-color: var(--accent); transform: scale(1.02); }
+        .bingo-cell.checked { background: var(--checked-bg); color: var(--checked-text); border-color: var(--checked-bg); font-weight: bold; }
+        .bingo-cell.bingo-line { border-color: var(--bingo-color); box-shadow: 0 0 0 2px var(--bingo-color); }
+
+        .history-panel { width: 100%; max-width: 600px; margin-top: 25px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 12px 16px; }
+        .history-panel h3 { margin: 0 0 8px; font-size: 0.95rem; }
+        #history-list { list-style: none; margin: 0; padding: 0; font-size: 0.8rem; max-height: 150px; overflow-y: auto; }
+        #history-list li { padding: 4px 0; border-bottom: 1px solid var(--border-color); }
+        #history-list li:last-child { border-bottom: none; }
+        .history-empty { color: #6c7086; }
+
+        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--accent); color: #11111b; padding: 8px 16px; border-radius: 20px; font-size: 0.85rem; font-weight: bold; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
+        .toast.show { opacity: 1; }
+
+        #firework-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9999; }
+
+        @media (max-width: 700px) {
+            .container { flex-direction: column; align-items: center; }
+            .setup-panel, .board-panel { max-width: 100%; width: 100%; }
+            .setup-panel.collapsed { max-width: 100%; width: 100%; }
+            textarea { height: 160px; }
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="firework-canvas"></canvas>
+
+    <h1>Dev Daily Bingo 🎯</h1>
+    <div class="seed-row">
+        <div class="seed-display">Active Seed: <span id="current-seed">-</span></div>
+        <button class="link-btn" onclick="copyBoardLink()">🔗 Link kopieren</button>
+    </div>
+
+    <div class="container">
+        <div class="board-panel">
+            <div class="bingo-banner" id="bingo-banner">🎉 BINGO!</div>
+            <div class="bingo-grid" id="bingo-board"></div>
+
+            <div class="history-panel">
+                <h3>📜 Verlauf</h3>
+                <ul id="history-list"></ul>
+            </div>
+        </div>
+
+        <div class="setup-panel" id="setup-panel">
+            <h3>
+                <span class="panel-title-text">Wort-Pool</span>
+                <button class="toggle-btn" id="toggle-btn" onclick="toggleSetup()" title="Ein-/Ausklappen"></button>
+            </h3>
+            <div class="setup-body">
+                <p class="setup-hint">1 Eintrag pro Zeile. Ab 16 bzw. 25 Einträgen wird das Raster automatisch größer (4×4 / 5×5).</p>
+                <textarea id="words-input" placeholder="z.B.&#10;Meeting läuft über die geplante Zeit&#10;Jemand sagt 'Synergie'&#10;Mikrofon war stumm geschaltet&#10;Standup dauert länger als 15 Minuten"></textarea>
+                <button onclick="saveWords()">Wort-Pool speichern</button>
+                <!-- BUTTONS FÜR DEN EXPORT -->
+                <button onclick="exportConfigJs()" style="background: #a6e3a1; color: #11111b; margin-top: 5px;">📥 Als config.js exportieren</button>
+                <button onclick="exportToClipboard()" style="background: #cba6f7; color: #11111b; margin-top: 5px;">📋 JSON in Zwischenablage</button>
+
+                <button class="reset-btn" onclick="resetBoard()">🔄 Neu würfeln (Reset)</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        let currentSeed;
+        let checkedIndexes = [];
+        let currentColumns = 3;
+        let currentGridSize = 9;
+        let currentSettings = { theme: "dark", accentColor: "#89b4fa" };
+        let celebratedLines = new Set();
+        let initialRender = true; // verhindert Feuerwerk beim reinen Neuladen einer schon gewonnenen Seite
+
+        // --- Feuerwerk-Animation bei BINGO ---
+        const fwCanvas = document.getElementById('firework-canvas');
+        const fwCtx = fwCanvas.getContext('2d');
+        let fireworkParticles = [];
+        let fireworkAnimating = false;
+        let pendingBursts = 0;
+
+        function resizeFireworkCanvas() {
+            fwCanvas.width = window.innerWidth;
+            fwCanvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeFireworkCanvas);
+
+        function spawnFirework(x, y) {
+            const colors = ['#f9e2af', '#a6e3a1', '#89b4fa', '#f38ba8', '#cba6f7', '#fab387'];
+            const color = colors[Math.floor(Math.random() * colors.length)];
+            const count = 45;
+            for (let i = 0; i < count; i++) {
+                const angle = (Math.PI * 2 * i) / count + Math.random() * 0.3;
+                const speed = 2 + Math.random() * 3.5;
+                fireworkParticles.push({
+                    x, y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    alpha: 1,
+                    color,
+                    size: 2 + Math.random() * 2
+                });
+            }
+        }
+
+        function animateFireworks() {
+            fwCtx.clearRect(0, 0, fwCanvas.width, fwCanvas.height);
+
+            fireworkParticles.forEach(p => {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.06; // Schwerkraft
+                p.vx *= 0.99; // Luftwiderstand
+                p.alpha -= 0.014;
+            });
+            fireworkParticles = fireworkParticles.filter(p => p.alpha > 0);
+
+            fireworkParticles.forEach(p => {
+                fwCtx.globalAlpha = Math.max(p.alpha, 0);
+                fwCtx.fillStyle = p.color;
+                fwCtx.beginPath();
+                fwCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                fwCtx.fill();
+            });
+            fwCtx.globalAlpha = 1;
+
+            if (pendingBursts > 0 || fireworkParticles.length > 0) {
+                requestAnimationFrame(animateFireworks);
+            } else {
+                fireworkAnimating = false;
+            }
+        }
+
+        function triggerFireworks() {
+            const bursts = 6;
+            pendingBursts += bursts;
+            for (let i = 0; i < bursts; i++) {
+                setTimeout(() => {
+                    const x = fwCanvas.width * (0.15 + Math.random() * 0.7);
+                    const y = fwCanvas.height * (0.15 + Math.random() * 0.4);
+                    spawnFirework(x, y);
+                    pendingBursts--;
+                }, i * 220);
+            }
+            if (!fireworkAnimating) {
+                fireworkAnimating = true;
+                requestAnimationFrame(animateFireworks);
+            }
+        }
+
+        function mulberry32(a) {
+            return function() {
+              let t = a += 0x6D2B79F5;
+              t = Math.imul(t ^ (t >>> 15), t | 1);
+              t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+              return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+            }
+        }
+
+        function seededShuffle(array, seed) {
+            const generateRandom = mulberry32(seed);
+            let currentIndex = array.length, randomIndex;
+            while (currentIndex !== 0) {
+                randomIndex = Math.floor(generateRandom() * currentIndex);
+                currentIndex--;
+                [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+            }
+            return array;
+        }
+
+        function newRandomSeed() {
+            return Math.floor(Math.random() * 90000) + 10000;
+        }
+
+        // Liest eine Seed-Rohangabe (z.B. aus URL-Hash oder LocalStorage) und liefert
+        // nur eine gültige Zahl zurück, sonst null (statt stillschweigend NaN durchzureichen).
+        function parseSeed(raw) {
+            if (raw === null || raw === undefined || raw === '') return null;
+            const n = parseInt(raw, 10);
+            return Number.isFinite(n) ? n : null;
+        }
+
+        function adjustFontSize(cell, text, columns) {
+            const textLength = text.length;
+            let baseSize = columns === 3 ? 1.2 : (columns === 4 ? 1.0 : 0.85);
+            if (textLength > 35) { baseSize *= 0.70; }
+            else if (textLength > 20) { baseSize *= 0.82; }
+            cell.style.fontSize = `${baseSize}rem`;
+            cell.style.lineHeight = '1.2';
+        }
+
+        // Wendet die Einstellungen aus der config.js dynamisch auf das CSS an
+        // und merkt sie sich, damit der Export später die tatsächlich aktiven Werte schreibt.
+        function applyThemeSettings(settings) {
+            currentSettings = { ...currentSettings, ...settings };
+            const root = document.documentElement;
+
+            // Wechsel zwischen Dark und Light Mode
+            if (currentSettings.theme === "light") {
+                root.style.setProperty('--bg-color', '#eff1f5');
+                root.style.setProperty('--card-bg', '#e6e9ef');
+                root.style.setProperty('--text-color', '#4c4f69');
+                root.style.setProperty('--border-color', '#bcc0cc');
+            } else {
+                root.style.setProperty('--bg-color', '#1e1e2e');
+                root.style.setProperty('--card-bg', '#252538');
+                root.style.setProperty('--text-color', '#cdd6f4');
+                root.style.setProperty('--border-color', '#45475a');
+            }
+
+            // Wunsch-Akzentfarbe setzen, falls vorhanden
+            if (currentSettings.accentColor) {
+                root.style.setProperty('--accent', currentSettings.accentColor);
+            }
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            clearTimeout(showToast._t);
+            showToast._t = setTimeout(() => toast.classList.remove('show'), 2000);
+        }
+
+        function copyBoardLink() {
+            const url = window.location.origin + window.location.pathname + '#' + currentSeed;
+            const done = () => showToast('Link kopiert!');
+            const fail = () => showToast('Kopieren fehlgeschlagen – Link: ' + url);
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(url).then(done).catch(fail);
+            } else {
+                fail();
+            }
+        }
+
+        function toggleSetup() {
+            const panel = document.getElementById('setup-panel');
+            panel.classList.toggle('collapsed');
+            const collapsed = panel.classList.contains('collapsed');
+            localStorage.setItem('bingo_setup_collapsed', collapsed ? '1' : '0');
+            updateToggleIcon(collapsed);
+        }
+
+        // Pfeilrichtung zeigt an, wohin der Klick das Panel bewegt (auf/zu)
+        // Chevron zeigt die Bewegungsrichtung des Panels: eingeklappt -> Pfeil nach links (öffnet nach links ins Bild),
+        // ausgeklappt -> Pfeil nach rechts (klappt nach rechts an den Rand zu)
+        const CHEVRON_LEFT = '<svg viewBox="0 0 24 24"><polyline points="15 6 9 12 15 18"></polyline></svg>';
+        const CHEVRON_RIGHT = '<svg viewBox="0 0 24 24"><polyline points="9 6 15 12 9 18"></polyline></svg>';
+
+        function updateToggleIcon(collapsed) {
+            const btn = document.getElementById('toggle-btn');
+            btn.innerHTML = collapsed ? CHEVRON_LEFT : CHEVRON_RIGHT;
+            btn.title = collapsed ? 'Einstellungen einblenden' : 'Einstellungen ausblenden';
+        }
+
+        function init() {
+            resizeFireworkCanvas();
+
+            // Prüfen, ob das Objekt aus der config.js geladen wurde, ansonsten Fallback
+            const config = (typeof BINGO_CONFIG !== 'undefined') ? BINGO_CONFIG : {
+                settings: { theme: "dark" },
+                words: ["config.js konnte nicht gefunden werden!"]
+            };
+
+            // Theme-Einstellungen aus der config.js anwenden
+            applyThemeSettings(config.settings || {});
+
+            // Wort-Pool füllen (Nutzt die config.js Werte, falls der LocalStorage noch leer ist)
+            if (!localStorage.getItem('bingo_words')) {
+                localStorage.setItem('bingo_words', config.words.join('\n'));
+            }
+            document.getElementById('words-input').value = localStorage.getItem('bingo_words');
+
+            // Seed-Handling via URL-Hash (mit Validierung statt stillem NaN)
+            let seed = window.location.hash ? parseSeed(window.location.hash.substring(1)) : null;
+            if (seed === null) {
+                seed = parseSeed(localStorage.getItem('bingo_seed'));
+            }
+            if (seed === null) {
+                seed = newRandomSeed();
+            }
+            currentSeed = seed;
+            localStorage.setItem('bingo_seed', currentSeed);
+            window.location.hash = currentSeed;
+            document.getElementById('current-seed').textContent = currentSeed;
+
+            // Abgehakte Boxen aus dem Speicher laden
+            const savedChecked = localStorage.getItem('bingo_checked_indexes');
+            if (savedChecked) {
+                checkedIndexes = savedChecked.split(',').filter(x => x !== '').map(Number);
+            }
+
+            // Setup-Panel-Status wiederherstellen
+            const isCollapsed = localStorage.getItem('bingo_setup_collapsed') === '1';
+            if (isCollapsed) {
+                document.getElementById('setup-panel').classList.add('collapsed');
+            }
+            updateToggleIcon(isCollapsed);
+
+            renderHistory();
+            generateBoard();
+        }
+
+        // Wählt die Rastergröße passend zur Wortanzahl (3x3 / 4x4 / 5x5)
+        function computeGrid(wordCount) {
+            if (wordCount >= 25) return { size: 25, columns: 5 };
+            if (wordCount >= 16) return { size: 16, columns: 4 };
+            return { size: 9, columns: 3 };
+        }
+
+        // Liefert alle Gewinnlinien (Zeilen, Spalten, beide Diagonalen) als Index-Arrays
+        function getLines(columns) {
+            const lines = [];
+            for (let r = 0; r < columns; r++) {
+                lines.push(Array.from({ length: columns }, (_, c) => r * columns + c));
+            }
+            for (let c = 0; c < columns; c++) {
+                lines.push(Array.from({ length: columns }, (_, r) => r * columns + c));
+            }
+            lines.push(Array.from({ length: columns }, (_, i) => i * columns + i));
+            lines.push(Array.from({ length: columns }, (_, i) => i * columns + (columns - 1 - i)));
+            return lines;
+        }
+
+        function updateBingoStatus() {
+            const boardElement = document.getElementById('bingo-board');
+            const banner = document.getElementById('bingo-banner');
+            const completedLines = getLines(currentColumns).filter(line =>
+                line.every(idx => checkedIndexes.includes(idx))
+            );
+
+            Array.from(boardElement.children).forEach(cell => cell.classList.remove('bingo-line'));
+            let hasNewLine = false;
+            completedLines.forEach(line => {
+                const key = line.join(',');
+                if (!celebratedLines.has(key)) {
+                    celebratedLines.add(key);
+                    hasNewLine = true;
+                }
+                line.forEach(idx => {
+                    const cell = boardElement.children[idx];
+                    if (cell) cell.classList.add('bingo-line');
+                });
+            });
+
+            if (completedLines.length > 0) {
+                banner.style.display = 'block';
+                banner.textContent = completedLines.length > 1 ? `🎉 BINGO! (${completedLines.length}x)` : '🎉 BINGO!';
+            } else {
+                banner.style.display = 'none';
+            }
+
+            if (hasNewLine && !initialRender) {
+                triggerFireworks();
+            }
+            initialRender = false;
+        }
+
+        function generateBoard() {
+            const rawText = document.getElementById('words-input').value;
+            let wordsArray = rawText.split('\n').map(w => w.trim()).filter(w => w !== '');
+
+            const grid = computeGrid(wordsArray.length);
+            currentGridSize = grid.size;
+            currentColumns = grid.columns;
+
+            const boardElement = document.getElementById('bingo-board');
+            boardElement.style.gridTemplateColumns = `repeat(${currentColumns}, 1fr)`;
+            boardElement.innerHTML = '';
+
+            let shuffledWords = seededShuffle([...wordsArray], currentSeed);
+
+            for (let i = 0; i < currentGridSize; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'bingo-cell';
+
+                const contentText = shuffledWords[i] || `[Feld ${i + 1}]`;
+                cell.textContent = contentText;
+
+                adjustFontSize(cell, contentText, currentColumns);
+
+                if (checkedIndexes.includes(i)) {
+                    cell.classList.add('checked');
+                }
+
+                cell.addEventListener('click', () => {
+                    if (cell.classList.contains('checked')) {
+                        cell.classList.remove('checked');
+                        checkedIndexes = checkedIndexes.filter(index => index !== i);
+                    } else {
+                        cell.classList.add('checked');
+                        checkedIndexes.push(i);
+                    }
+                    localStorage.setItem('bingo_checked_indexes', checkedIndexes.join(','));
+                    updateBingoStatus();
+                });
+
+                boardElement.appendChild(cell);
+            }
+
+            updateBingoStatus();
+        }
+
+        function saveWords() {
+            const text = document.getElementById('words-input').value;
+            localStorage.setItem('bingo_words', text);
+            checkedIndexes = [];
+            celebratedLines = new Set();
+            localStorage.setItem('bingo_checked_indexes', '');
+            generateBoard();
+        }
+
+        // Merkt sich das aktuelle Board (Seed + Trefferquote) im Verlauf, bevor es verworfen wird
+        function recordHistory() {
+            if (checkedIndexes.length === 0) return;
+            const bingoCount = getLines(currentColumns).filter(line =>
+                line.every(idx => checkedIndexes.includes(idx))
+            ).length;
+            const history = JSON.parse(localStorage.getItem('bingo_history') || '[]');
+            history.unshift({
+                seed: currentSeed,
+                date: new Date().toLocaleString('de-DE'),
+                hits: checkedIndexes.length,
+                total: currentGridSize,
+                bingoCount
+            });
+            localStorage.setItem('bingo_history', JSON.stringify(history.slice(0, 20)));
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const history = JSON.parse(localStorage.getItem('bingo_history') || '[]');
+            const list = document.getElementById('history-list');
+            list.innerHTML = history.length === 0
+                ? '<li class="history-empty">Noch keine vergangenen Boards.</li>'
+                : history.map(h => {
+                    const bingoCount = h.bingoCount ?? 0;
+                    return `<li>${h.date} — Seed ${h.seed}: ${h.hits}/${h.total} ✔️ - ${bingoCount} ${bingoCount === 1 ? 'Bingo' : 'Bingos'}</li>`;
+                }).join('');
+        }
+
+        function resetBoard() {
+            if (checkedIndexes.length > 0 && !confirm('Board zurücksetzen? Dein aktueller Fortschritt geht verloren.')) {
+                return;
+            }
+            recordHistory();
+
+            currentSeed = newRandomSeed();
+            localStorage.setItem('bingo_seed', currentSeed);
+            window.location.hash = currentSeed;
+            document.getElementById('current-seed').textContent = currentSeed;
+            checkedIndexes = [];
+            celebratedLines = new Set();
+            localStorage.setItem('bingo_checked_indexes', '');
+            generateBoard();
+        }
+
+        // Generiert die fertige config.js Struktur (mit den aktuell aktiven Settings) und startet den Browser-Download
+        function exportConfigJs() {
+            const rawText = document.getElementById('words-input').value;
+            // Zeilen in ein sauberes JS-Array umwandeln
+            const wordsArray = rawText.split('\n').map(w => w.trim()).filter(w => w !== '');
+
+            // Die exakte Struktur der config.js als String bauen – mit den tatsächlich aktiven Settings
+            const configTemplate = `const BINGO_CONFIG = {
+  "settings": {
+    "theme": "${currentSettings.theme}",
+    "accentColor": "${currentSettings.accentColor}"
+  },
+  "words": ${JSON.stringify(wordsArray, null, 2)}
+};`;
+
+            // Datei-Blob erzeugen und den Download im Browser triggern
+            const blob = new Blob([configTemplate], { type: 'application/javascript' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'config.js';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // Schneller Export als JSON-String für das Clipboard
+        function exportToClipboard() {
+            const rawText = document.getElementById('words-input').value;
+            const wordsArray = rawText.split('\n').map(w => w.trim()).filter(w => w !== '');
+            const jsonString = JSON.stringify(wordsArray);
+
+            navigator.clipboard.writeText(jsonString).then(() => {
+                showToast('Wort-Pool als JSON kopiert!');
+            }).catch(err => {
+                console.error('Fehler beim Kopieren: ', err);
+            });
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
