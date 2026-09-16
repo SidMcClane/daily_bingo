@@ -15,19 +15,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Echte config.js aus Template + Secrets erzeugen
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Vue-App bauen
+        working-directory: app
         env:
-          SUPABASE_API_URL: ${{ secrets.SUPABASE_API_URL }}
-          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          # Wiederverwendete Secrets aus der alten config.js-Pipeline, hier als
+          # VITE_*-Variablen an Vite übergeben (wird zur Build-Zeit fest eingebettet).
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_API_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
         run: |
-          sed \
-            -e "s|__SUPABASE_API_URL__|${SUPABASE_API_URL}|g" \
-            -e "s|__SUPABASE_PUBLISHABLE_KEY__|${SUPABASE_PUBLISHABLE_KEY}|g" \
-            config.template.js > config.js
+          npm ci
+          npm run build
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: app/dist
 
   deploy:
     needs: build

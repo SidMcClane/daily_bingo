@@ -1,0 +1,20 @@
+:root {
+  --bg: #1e1e2e;
+  --card: #252538;
+  --text: #cdd6f4;
+  --muted: #7f849c;
+  --accent: #89b4fa;
+  --warn: #f9e2af;
+  --danger: #f38ba8;
+  --border: #45475a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}

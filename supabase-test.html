@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Supabase-Verbindungstest</title>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 24px 20px 60px;
+    line-height: 1.5;
+  }
+  h1 { color: #89b4fa; font-size: 1.4rem; }
+  h2 { font-size: 1rem; color: #f9e2af; margin-top: 28px; border-bottom: 1px solid #45475a; padding-bottom: 6px; }
+  button {
+    background: #89b4fa; color: #11111b; border: none; padding: 10px 18px;
+    border-radius: 6px; font-weight: bold; cursor: pointer; margin-right: 8px;
+  }
+  button.danger { background: #f38ba8; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  pre {
+    background: #11111b; border: 1px solid #45475a; border-radius: 8px;
+    padding: 12px; overflow-x: auto; font-size: 0.82rem; white-space: pre-wrap; word-break: break-word;
+  }
+  .ok { color: #a6e3a1; }
+  .err { color: #f38ba8; }
+  .muted { color: #7f849c; font-size: 0.85rem; }
+  .row { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+  img.avatar { width: 32px; height: 32px; border-radius: 50%; }
+</style>
+</head>
+<body>
+  <h1>🔌 Supabase-Verbindungstest — Dev Daily Bingo</h1>
+  <p class="muted">
+    Reiner Diagnose-Screen, kein Teil der eigentlichen App. Prüft: GitHub-OAuth-Login,
+    ob der <code>handle_new_user()</code>-Trigger automatisch ein Profil + Hauptraum-Mitgliedschaft
+    angelegt hat, und ob die RLS-Policies das Lesen der eigenen Daten erlauben.
+  </p>
+
+  <div id="config-check"></div>
+
+  <h2>1. Login</h2>
+  <div id="auth-area">
+    <button id="login-btn">Mit GitHub anmelden</button>
+    <button id="logout-btn" class="danger" style="display:none">Abmelden</button>
+  </div>
+  <div id="session-info"></div>
+
+  <h2>2. Eigenes Profil (<code>profiles</code>)</h2>
+  <pre id="profile-out">– noch nicht eingeloggt –</pre>
+
+  <h2>3. Raum-Mitgliedschaften (<code>room_members</code> + <code>rooms</code>)</h2>
+  <pre id="rooms-out">– noch nicht eingeloggt –</pre>
+
+  <h2>4. Rohe Fehlerausgabe</h2>
+  <pre id="error-out">–</pre>
+
+<script>
+(function () {
+  const cfg = (typeof BINGO_CONFIG !== 'undefined') ? BINGO_CONFIG : {};
+  const configCheckEl = document.getElementById('config-check');
+
+  if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {
+    configCheckEl.innerHTML =
+      '<p class="err"><b>config.js liefert keine supabaseUrl/supabaseAnonKey.</b> ' +
+      'Lokal: config.js von Hand mit den echten Werten aus dem Supabase-Dashboard ' +
+      '(Project Settings → API) befüllen. Auf GitHub Pages: läuft automatisch über ' +
+      'den Deploy-Workflow, der config.template.js mit den Repository Secrets füllt.</p>';
+    return;
+  }
+  configCheckEl.innerHTML = '<p class="ok">✓ config.js liefert supabaseUrl + supabaseAnonKey.</p>';
+
+  const { createClient } = supabase;
+  const client = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+
+  const loginBtn = document.getElementById('login-btn');
+  const logoutBtn = document.getElementById('logout-btn');
+  const sessionInfoEl = document.getElementById('session-info');
+  const profileOutEl = document.getElementById('profile-out');
+  const roomsOutEl = document.getElementById('rooms-out');
+  const errorOutEl = document.getElementById('error-out');
+
+  function showError(label, err) {
+    errorOutEl.textContent = '[' + label + '] ' + JSON.stringify(err, null, 2);
+  }
+
+  loginBtn.addEventListener('click', async () => {
+    const { error } = await client.auth.signInWithOAuth({
+      provider: 'github',
+      options: { redirectTo: window.location.href }
+    });
+    if (error) showError('signInWithOAuth', error);
+  });
+
+  logoutBtn.addEventListener('click', async () => {
+    await client.auth.signOut();
+    renderLoggedOut();
+  });
+
+  function renderLoggedOut() {
+    loginBtn.style.display = 'inline-block';
+    logoutBtn.style.display = 'none';
+    sessionInfoEl.innerHTML = '<p class="muted">Nicht eingeloggt.</p>';
+    profileOutEl.textContent = '– noch nicht eingeloggt –';
+    roomsOutEl.textContent = '– noch nicht eingeloggt –';
+  }
+
+  async function renderLoggedIn(user) {
+    loginBtn.style.display = 'none';
+    logoutBtn.style.display = 'inline-block';
+
+    const meta = user.user_metadata || {};
+    sessionInfoEl.innerHTML =
+      '<div class="row">' +
+      (meta.avatar_url ? '<img class="avatar" src="' + meta.avatar_url + '">' : '') +
+      '<div>' +
+      '<div class="ok">✓ Eingeloggt als <b>' + (meta.user_name || user.email || user.id) + '</b></div>' +
+      '<div class="muted">auth.uid(): ' + user.id + '</div>' +
+      '</div></div>';
+
+    const { data: profile, error: profileErr } = await client
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (profileErr) {
+      profileOutEl.innerHTML = '<span class="err">Fehler beim Lesen von profiles:</span>\n' + JSON.stringify(profileErr, null, 2);
+      showError('profiles select', profileErr);
+    } else if (!profile) {
+      profileOutEl.innerHTML = '<span class="err">Kein Profil gefunden – handle_new_user()-Trigger hat vermutlich nicht gegriffen.</span>';
+    } else {
+      profileOutEl.innerHTML = '<span class="ok">✓ Trigger hat automatisch ein Profil angelegt:</span>\n' + JSON.stringify(profile, null, 2);
+    }
+
+    const { data: memberships, error: roomsErr } = await client
+      .from('room_members')
+      .select('role, status, joined_at, rooms ( id, name, visibility )')
+      .eq('profile_id', user.id);
+
+    if (roomsErr) {
+      roomsOutEl.innerHTML = '<span class="err">Fehler beim Lesen von room_members:</span>\n' + JSON.stringify(roomsErr, null, 2);
+      showError('room_members select', roomsErr);
+    } else if (!memberships || memberships.length === 0) {
+      roomsOutEl.innerHTML = '<span class="err">Keine Raum-Mitgliedschaft gefunden – sollte eigentlich den Hauptraum enthalten.</span>';
+    } else {
+      roomsOutEl.innerHTML = '<span class="ok">✓ Automatischer Hauptraum-Beitritt hat funktioniert:</span>\n' + JSON.stringify(memberships, null, 2);
+    }
+  }
+
+  client.auth.onAuthStateChange((_event, session) => {
+    if (session && session.user) {
+      renderLoggedIn(session.user);
+    } else {
+      renderLoggedOut();
+    }
+  });
+
+  client.auth.getSession().then(({ data, error }) => {
+    if (error) showError('getSession', error);
+    if (data && data.session && data.session.user) {
+      renderLoggedIn(data.session.user);
+    } else {
+      renderLoggedOut();
+    }
+  });
+})();
+</script>
+</body>
+</html>
