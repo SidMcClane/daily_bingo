@@ -484,10 +484,19 @@ export async function proposeWord() {
 export async function toggleVote(word) {
   const voted = state.room.wordVotesMine.has(word.id)
   if (voted) {
+    state.room.wordVotesMine.delete(word.id)
     await supabase.from('word_votes').delete().eq('word_id', word.id).eq('profile_id', state.profile.id)
   } else {
+    // Optimistisch sofort lokal markieren, bevor die Anfrage zurückkommt -
+    // sonst kann ein zweiter, schneller Klick (Doppelklick, Touch-Ghosting)
+    // eine zweite Insert-Anfrage auslösen, bevor die erste durch ist, und
+    // gegen den Unique-Constraint (word_id, profile_id) laufen.
+    state.room.wordVotesMine.add(word.id)
     const { error } = await supabase.from('word_votes').insert({ word_id: word.id, profile_id: state.profile.id })
-    if (error) return fail('Voten', error)
+    if (error && error.code !== '23505') {
+      state.room.wordVotesMine.delete(word.id)
+      return fail('Voten', error)
+    }
   }
   await loadWordPool()
 }
