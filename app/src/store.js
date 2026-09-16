@@ -571,11 +571,30 @@ export async function startNewRoundFromPool(mode) {
     state.error = 'Mindestens 9 aktive Wörter im Pool nötig, um eine Runde zu starten.'
     return
   }
-  const byVotes = [...active].sort((a, b) => votesFor(b.id) - votesFor(a.id))
-  const topN = Math.min(state.room.topCount, active.length)
-  const top = byVotes.slice(0, topN)
-  const rest = byVotes.slice(topN)
-  const filler = seededShuffle(rest, Date.now() & 0xffffffff)
+  // Nur so viele Wörter ziehen, wie das nächste Board (9/16/25) tatsächlich
+  // braucht - sonst landen überzählige Wörter in rounds.words, die beim
+  // Anzeigen sowieso wieder abgeschnitten werden.
+  const cellCount = gridSizeFor(active.length) ** 2
+
+  // Bei Stimmengleichstand zufällig mischen statt stabil nach Fetch-
+  // Reihenfolge zu sortieren - sonst gewinnen bei topCount >= Pool-Größe
+  // immer dieselben zuerst eingefügten Wörter und neu hinzugefügte kommen
+  // nie zum Zug (genau das sah dann nach einer fest einprogrammierten
+  // "Default"-Liste aus).
+  const byVoteLevel = new Map()
+  active.forEach((w) => {
+    const v = votesFor(w.id)
+    if (!byVoteLevel.has(v)) byVoteLevel.set(v, [])
+    byVoteLevel.get(v).push(w)
+  })
+  const ordered = [...byVoteLevel.keys()]
+    .sort((a, b) => b - a)
+    .flatMap((v) => seededShuffle(byVoteLevel.get(v), hashSeed(state.room.id + v + Date.now())))
+
+  const topN = Math.min(state.room.topCount, cellCount)
+  const top = ordered.slice(0, topN)
+  const restPool = ordered.slice(topN)
+  const filler = seededShuffle(restPool, Date.now() & 0xffffffff).slice(0, cellCount - top.length)
   const words = [...top, ...filler].map((w) => w.word)
 
   const { error } = await supabase.from('rounds').insert({ room_id: state.room.id, mode, words })
