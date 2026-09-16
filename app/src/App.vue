@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { supabase, MAIN_ROOM_ID } from './lib/supabase'
 
 // ---------- Auth-Zustand ----------
@@ -92,7 +92,18 @@ const leaderboard = ref([])
 // ---------- UI ----------
 const tab = ref('board')
 const error = ref('')
-const newRoundWords = ref('')
+// Zwischenspeicherung im Browser, damit die Wortliste eine beendete Runde
+// übersteht und nicht bei jeder neuen Runde neu eingetippt werden muss.
+// Ersetzt später den echten Wort-Pool (siehe konzept.md, noch offen).
+const WORD_LIST_STORAGE_KEY = 'daily-bingo-main-room-word-list'
+const newRoundWords = ref(localStorage.getItem(WORD_LIST_STORAGE_KEY) || '')
+watch(newRoundWords, (val) => {
+  try {
+    localStorage.setItem(WORD_LIST_STORAGE_KEY, val)
+  } catch {
+    // localStorage kann in seltenen Fällen blockiert sein (privater Modus o.ä.) – dann einfach ignorieren.
+  }
+})
 const newRoundMode = ref('first_blood')
 
 let realtimeChannel = null
@@ -235,7 +246,6 @@ async function startNewRound() {
     error.value = 'Runde starten: ' + err.message
     return
   }
-  newRoundWords.value = ''
   await loadRound()
 }
 
