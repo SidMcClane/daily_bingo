@@ -1,6 +1,6 @@
 import { reactive } from 'vue'
 import { supabase } from './lib/supabase'
-import { gridSizeFor, lineIndexes, hashSeed, seededShuffle, dayKey, DAY } from './lib/helpers'
+import { gridSizeFor, lineIndexes, hashSeed, seededShuffle, dayKey, DAY, FREE_WORD, hasFreeSpace, centerIndex } from './lib/helpers'
 
 export const state = reactive({
   session: null,
@@ -12,6 +12,8 @@ export const state = reactive({
 
   rooms: [], // alle für mich sichtbaren Räume
   myMemberships: [], // room_members (mine), rooms eingebettet
+  roomFacepile: {}, // room_id -> [{nickname,color}] (nur für Räume, in denen ich aktives Mitglied bin, RLS lässt sonst nichts durch)
+  roomModes: {}, // room_id -> aktueller/letzter Modus
 
   platform: {
     pendingUsers: [],
@@ -47,6 +49,7 @@ export const state = reactive({
   },
 
   winner: null,
+  fireworksTrigger: 0,
 })
 
 let realtimeChannel = null
@@ -130,6 +133,38 @@ export async function loadLobby() {
   if (memErr) return fail('Mitgliedschaften laden', memErr)
   state.rooms = rooms || []
   state.myMemberships = memberships || []
+
+  // Facepile/Modus-Chip nur für Räume möglich, in denen ich aktives Mitglied
+  // bin - für alles andere blockt RLS auf room_members zu Recht den Zugriff.
+  const myActiveRoomIds = state.myMemberships.filter((m) => m.status === 'active').map((m) => m.room_id)
+  if (!myActiveRoomIds.length) {
+    state.roomFacepile = {}
+    state.roomModes = {}
+    return
+  }
+  const [{ data: members }, { data: rounds }] = await Promise.all([
+    supabase
+      .from('room_members')
+      .select('room_id, profile_id, profiles(nickname, color)')
+      .in('room_id', myActiveRoomIds)
+      .eq('status', 'active'),
+    supabase
+      .from('rounds')
+      .select('room_id, mode, started_at')
+      .in('room_id', myActiveRoomIds)
+      .order('started_at', { ascending: false }),
+  ])
+  const facepile = {}
+  ;(members || []).forEach((m) => {
+    if (!facepile[m.room_id]) facepile[m.room_id] = []
+    facepile[m.room_id].push(m.profiles)
+  })
+  const modes = {}
+  ;(rounds || []).forEach((r) => {
+    if (!(r.room_id in modes)) modes[r.room_id] = r.mode
+  })
+  state.roomFacepile = facepile
+  state.roomModes = modes
 }
 
 export const isMemberOf = (roomId) =>
@@ -383,7 +418,8 @@ function subscribeRoomRealtime(roomId) {
 
 // ------------------------------------------------------------ BOARD/BINGO ----
 
-export const gridSize = () => gridSizeFor(state.room.round?.words?.length || 0)
+export const gridSize = () =>
+  state.room.round?.grid_size || gridSizeFor(state.room.round?.words?.length || 0)
 
 export function boardWordsFor() {
   const round = state.room.round
@@ -391,9 +427,22 @@ export function boardWordsFor() {
   const size = gridSize()
   if (!size) return []
   const cellCount = size * size
-  const trimmed = round.words.slice(0, cellCount)
+  // Keine eigene "free_space"-Spalte auf rounds nötig: genau ein Wort weniger
+  // als die Rastergröße bedeutet zuverlässig, dass diese Runde mit Freifeld
+  // angelegt wurde (siehe startNewRoundFromPool / auto_start_next_round).
+  const free = round.words.length === cellCount - 1
+  const neededWords = free ? cellCount - 1 : cellCount
+  const trimmed = round.words.slice(0, neededWords)
   const seed = hashSeed(round.id + state.profile.id)
-  return seededShuffle(trimmed, seed)
+  const shuffled = seededShuffle(trimmed, seed)
+  if (!free) return shuffled
+  const center = centerIndex(size)
+  const result = []
+  let wi = 0
+  for (let i = 0; i < size * size; i++) {
+    result.push(i === center ? FREE_WORD : shuffled[wi++])
+  }
+  return result
 }
 
 export function linesForSize() {
@@ -403,7 +452,7 @@ export function linesForSize() {
 
 export async function toggleCell(word) {
   const round = state.room.round
-  if (!round) return
+  if (!round || word === FREE_WORD) return
   const already = state.room.marksAll.some((m) => m.word === word && m.profile_id === state.profile.id)
   if (already) {
     state.room.marksAll = state.room.marksAll.filter((m) => !(m.word === word && m.profile_id === state.profile.id))
@@ -424,7 +473,7 @@ async function checkForNewBingo() {
   const fresh = []
   linesForSize().forEach((line, idx) => {
     const key = state.room.round.id + '-' + idx
-    if (line.every((i) => mine.has(words[i])) && !reportedLines.has(key)) {
+    if (line.every((i) => words[i] === FREE_WORD || mine.has(words[i])) && !reportedLines.has(key)) {
       reportedLines.add(key)
       fresh.push(line)
     }
@@ -435,17 +484,53 @@ async function checkForNewBingo() {
     p_lines_count: fresh.length,
   })
   if (error) return fail('Bingo melden', error)
-  state.winner = {
-    words: fresh[0].map((i) => words[i]),
-    count: fresh.length,
-    win: data,
-  }
+
+  const winningWords = fresh[0].map((i) => words[i])
+  const winCount = fresh.length
+  state.fireworksTrigger++
+  // Erst das Feuerwerk ein paar Sekunden für sich laufen lassen, dann den
+  // Sieger-Modal einblenden (statt ihn sofort über die Animation zu legen).
+  if (winnerModalTimeout) clearTimeout(winnerModalTimeout)
+  winnerModalTimeout = setTimeout(() => {
+    state.winner = { words: winningWords, count: winCount, win: data, countdown: 8 }
+    startWinnerCountdown()
+  }, 3200)
+
   await loadRound()
   await loadWins()
 }
 
+let winnerModalTimeout = null
+let winnerCountdownInterval = null
+
+function startWinnerCountdown() {
+  if (winnerCountdownInterval) clearInterval(winnerCountdownInterval)
+  winnerCountdownInterval = setInterval(() => {
+    if (!state.winner) {
+      clearInterval(winnerCountdownInterval)
+      return
+    }
+    state.winner.countdown -= 1
+    if (state.winner.countdown <= 0) {
+      clearInterval(winnerCountdownInterval)
+      state.winner = null
+    }
+  }, 1000)
+}
+
 export function closeWinnerModal() {
+  if (winnerCountdownInterval) clearInterval(winnerCountdownInterval)
   state.winner = null
+}
+
+export async function copyBoardLink() {
+  const url = window.location.origin + window.location.pathname + '#' + state.room.id
+  try {
+    await navigator.clipboard.writeText(url)
+    showToast('Link kopiert')
+  } catch {
+    showToast('Konnte Link nicht kopieren')
+  }
 }
 
 // ------------------------------------------------------------ RAUM-ADMIN ----
@@ -510,6 +595,14 @@ export async function approveWord(word) {
 export async function rejectWord(word) {
   const { error } = await supabase.from('word_pool').update({ status: 'rejected' }).eq('id', word.id)
   if (error) return fail('Ablehnen', error)
+  await loadWordPool()
+}
+
+export async function deleteWord(word) {
+  if (!confirm('„' + word.word + '" endgültig aus dem Pool löschen?')) return
+  const { error } = await supabase.from('word_pool').delete().eq('id', word.id)
+  if (error) return fail('Löschen', error)
+  showToast('„' + word.word + '" gelöscht')
   await loadWordPool()
 }
 
@@ -580,10 +673,12 @@ export async function startNewRoundFromPool(mode) {
     state.error = 'Mindestens 9 aktive Wörter im Pool nötig, um eine Runde zu starten.'
     return
   }
-  // Nur so viele Wörter ziehen, wie das nächste Board (9/16/25) tatsächlich
-  // braucht - sonst landen überzählige Wörter in rounds.words, die beim
-  // Anzeigen sowieso wieder abgeschnitten werden.
-  const cellCount = gridSizeFor(active.length) ** 2
+  // Nur so viele Wörter ziehen, wie das nächste Board (9/16/25, ggf. minus
+  // Freifeld) tatsächlich braucht - sonst landen überzählige Wörter in
+  // rounds.words, die beim Anzeigen sowieso wieder abgeschnitten werden.
+  const size = gridSizeFor(active.length)
+  const free = hasFreeSpace(size, state.room.data?.free_space)
+  const cellCount = free ? size * size - 1 : size * size
 
   // Bei Stimmengleichstand zufällig mischen statt stabil nach Fetch-
   // Reihenfolge zu sortieren - sonst gewinnen bei topCount >= Pool-Größe
@@ -606,9 +701,16 @@ export async function startNewRoundFromPool(mode) {
   const filler = seededShuffle(restPool, Date.now() & 0xffffffff).slice(0, cellCount - top.length)
   const words = [...top, ...filler].map((w) => w.word)
 
-  const { error } = await supabase.from('rounds').insert({ room_id: state.room.id, mode, words })
+  const { error } = await supabase.from('rounds').insert({ room_id: state.room.id, mode, words, grid_size: size })
   if (error) return fail('Runde starten', error)
   await loadRound()
+}
+
+export async function toggleFreeSpace() {
+  const next = !state.room.data.free_space
+  const { error } = await supabase.from('rooms').update({ free_space: next }).eq('id', state.room.id)
+  if (error) return fail('Freifeld umschalten', error)
+  state.room.data.free_space = next
 }
 
 export { DAY, dayKey }

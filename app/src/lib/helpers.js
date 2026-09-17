@@ -58,6 +58,18 @@ export function gridSizeFor(n) {
   return 0
 }
 
+export const FREE_WORD = '★ FREI'
+
+// Freifeld gibt's nur bei ungerader Rastergröße (3x3/5x5) - ein 4x4-Raster
+// hat keine echte Mitte.
+export function hasFreeSpace(size, enabled) {
+  return !!enabled && (size === 3 || size === 5)
+}
+
+export function centerIndex(size) {
+  return Math.floor((size * size) / 2)
+}
+
 export function lineIndexes(size) {
   const lines = []
   for (let r = 0; r < size; r++) lines.push([...Array(size)].map((_, c) => r * size + c))

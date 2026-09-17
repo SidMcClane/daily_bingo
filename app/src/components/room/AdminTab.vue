@@ -10,6 +10,7 @@ import {
   bulkAddWords,
   startNewRoundFromPool,
   updateRoomSettings,
+  toggleFreeSpace,
 } from '../../store'
 import { hueFor, initials } from '../../lib/helpers'
 
@@ -101,6 +102,11 @@ function saveRoomSettings() {
         <p class="note" style="margin-top:12px">
           Zieht die Wörter aus dem Wort-Pool (Top-Votes-Anteil im Tab „Wort-Pool" einstellbar). Mindestens 9 aktive Wörter nötig.
         </p>
+
+        <div class="switch" style="margin-top:14px">
+          <span class="switch-text">Freifeld in der Mitte<small>Klassisches Bingo-Freilos, nur bei 3×3/5×5-Boards</small></span>
+          <button class="toggle" :aria-pressed="state.room.data?.free_space" @click="toggleFreeSpace" aria-label="Freifeld umschalten"></button>
+        </div>
       </div>
 
       <div class="panel">

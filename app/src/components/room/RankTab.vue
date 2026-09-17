@@ -10,7 +10,7 @@ const recentRounds = ref([])
 async function loadRecentRounds() {
   const { data } = await supabase
     .from('rounds')
-    .select('id, mode, started_at, ended_at')
+    .select('id, mode, started_at, ended_at, round_no')
     .eq('room_id', state.room.id)
     .order('started_at', { ascending: false })
     .limit(6)
@@ -109,7 +109,8 @@ const calendar = computed(() => {
       <div class="panel">
         <div class="panel-head"><span class="panel-title">Letzte Runden</span></div>
         <div class="lb">
-          <div v-for="r in recentRounds" :key="r.id" class="lb-row" style="grid-template-columns:minmax(0,1fr) auto">
+          <div v-for="r in recentRounds" :key="r.id" class="lb-row" style="grid-template-columns:60px minmax(0,1fr) auto">
+            <span class="lb-rank mono">#{{ r.round_no }}</span>
             <span class="player-name">{{ r.winnerName ? r.winnerName + ' gewinnt' : 'läuft noch' }}</span>
             <span class="tag" :class="r.mode === 'first_blood' ? 'proposed' : 'active'">{{ modeLabel(r.mode) }}</span>
           </div>

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
-import { state, proposeWord, toggleVote, votesFor, isRoomAdmin, approveWord, rejectWord } from '../../store'
+import { state, proposeWord, toggleVote, votesFor, isRoomAdmin, approveWord, rejectWord, deleteWord } from '../../store'
 
 const wordFilter = ref('all')
 
@@ -58,6 +58,9 @@ function hitsFor(word) {
                 <button class="btn btn-sm btn-primary" @click="approveWord(w)">Freigeben</button>
                 <button class="btn btn-sm btn-danger" @click="rejectWord(w)">Ablehnen</button>
               </template>
+              <button v-if="isRoomAdmin()" class="btn btn-sm btn-danger" @click="deleteWord(w)" title="Endgültig aus dem Pool löschen">
+                Löschen
+              </button>
             </span>
           </div>
           <p v-if="!filteredWords.length" style="margin:0;font-size:.84rem;color:var(--faint)">Keine Wörter in diesem Filter.</p>

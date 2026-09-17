@@ -1,14 +1,19 @@
 <script setup>
 import { computed } from 'vue'
-import { state, boardWordsFor, linesForSize, toggleCell, gridSize } from '../../store'
-import { hueFor, initials } from '../../lib/helpers'
+import { state, boardWordsFor, linesForSize, toggleCell, gridSize, copyBoardLink } from '../../store'
+import { hueFor, initials, FREE_WORD } from '../../lib/helpers'
 
 const boardWords = computed(() => boardWordsFor())
 const size = computed(() => gridSize())
+const realCellCount = computed(() => boardWords.value.filter((w) => w !== FREE_WORD).length)
 
 const myMarks = computed(
   () => new Set(state.room.marksAll.filter((m) => m.profile_id === state.profile.id).map((m) => m.word))
 )
+
+function isFilled(word) {
+  return word === FREE_WORD || myMarks.value.has(word)
+}
 
 const callersByWord = computed(() => {
   const map = new Map()
@@ -29,7 +34,7 @@ const lineCells = computed(() => {
   const words = boardWords.value
   const done = new Set()
   linesForSize().forEach((line) => {
-    if (line.every((i) => myMarks.value.has(words[i]))) line.forEach((i) => done.add(i))
+    if (line.every((i) => isFilled(words[i]))) line.forEach((i) => done.add(i))
   })
   return done
 })
@@ -38,8 +43,8 @@ const nearCells = computed(() => {
   const words = boardWords.value
   const s = new Set()
   linesForSize().forEach((line) => {
-    const markedCount = line.filter((i) => myMarks.value.has(words[i])).length
-    if (markedCount === size.value - 1) line.forEach((i) => { if (!myMarks.value.has(words[i])) s.add(i) })
+    const markedCount = line.filter((i) => isFilled(words[i])).length
+    if (markedCount === size.value - 1) line.forEach((i) => { if (!isFilled(words[i])) s.add(i) })
   })
   return s
 })
@@ -89,11 +94,11 @@ const boardLocked = computed(() => !!state.room.round?.ended_at)
       <div class="roundstrip">
         <div class="stat">
           <span class="stat-label">Markiert</span>
-          <span class="stat-value">{{ myMarks.size }}<span style="color:var(--faint)">/{{ size * size }}</span></span>
+          <span class="stat-value">{{ myMarks.size }}<span style="color:var(--faint)">/{{ realCellCount }}</span></span>
         </div>
         <div class="stat">
           <span class="stat-label">Fast voll</span>
-          <span class="stat-value" :class="{ warn: nearCells.size > 0 }">{{ nearCells.size > 0 ? 'ja' : 'nein' }}</span>
+          <span class="stat-value" :class="{ warn: nearCells.size > 0 }">{{ Math.round(nearCells.size / Math.max(1, size - 1)) }} Linien</span>
         </div>
         <div class="stat">
           <span class="stat-label">Deine Bingos</span>
@@ -102,6 +107,9 @@ const boardLocked = computed(() => !!state.room.round?.ended_at)
         <div class="stat">
           <span class="stat-label">Gerufen</span>
           <span class="stat-value" style="color:var(--peach)">{{ calledWords.length }}</span>
+        </div>
+        <div class="grow">
+          <button class="btn btn-sm" @click="copyBoardLink">Board-Link kopieren</button>
         </div>
       </div>
 
@@ -115,16 +123,17 @@ const boardLocked = computed(() => !!state.room.round?.ended_at)
               :key="i"
               class="cell"
               :class="{
+                'is-free': word === FREE_WORD,
                 'is-marked': myMarks.has(word),
                 'in-line': lineCells.has(i),
-                'is-next': !myMarks.has(word) && nearCells.has(i),
-                'is-called': !myMarks.has(word) && callerProfiles(word).length > 0,
+                'is-next': !isFilled(word) && nearCells.has(i),
+                'is-called': !isFilled(word) && callerProfiles(word).length > 0,
               }"
-              :disabled="boardLocked"
+              :disabled="boardLocked || word === FREE_WORD"
               @click="toggleCell(word)"
             >
               {{ word }}
-              <span class="callers" v-if="!myMarks.has(word) && callerProfiles(word).length">
+              <span class="callers" v-if="!isFilled(word) && callerProfiles(word).length">
                 <i class="caller-dot" v-for="(p, pi) in callerProfiles(word).slice(0, 3)" :key="pi" :style="{ background: hueFor(p) }"></i>
               </span>
             </button>
@@ -183,9 +192,9 @@ const boardLocked = computed(() => !!state.room.round?.ended_at)
                   {{ p.profiles?.nickname }}<span v-if="p.profile_id === state.profile.id" style="color:var(--faint)"> (du)</span>
                   <span v-if="!state.room.onlineIds.has(p.profile_id)" class="offline"> · weg</span>
                 </span>
-                <span class="player-meta">{{ markCount(p.profile_id) }}/{{ size * size }}</span>
+                <span class="player-meta">{{ markCount(p.profile_id) }}/{{ realCellCount }}</span>
                 <span class="bar">
-                  <i :style="{ width: (markCount(p.profile_id) / (size * size) * 100) + '%', background: hueFor(p.profiles) }"></i>
+                  <i :style="{ width: (markCount(p.profile_id) / Math.max(1, realCellCount) * 100) + '%', background: hueFor(p.profiles) }"></i>
                 </span>
               </div>
             </div>

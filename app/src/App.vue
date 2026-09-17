@@ -1,11 +1,12 @@
 <script setup>
 import { onMounted, computed } from 'vue'
-import { state, initAuth, login, logout, showToast, leaveRoomView } from './store'
+import { state, initAuth, login, logout, showToast, leaveRoomView, closeWinnerModal } from './store'
 import { hueFor, initials } from './lib/helpers'
 import LobbyView from './views/LobbyView.vue'
 import ProfileView from './views/ProfileView.vue'
 import PlatformAdminView from './views/PlatformAdminView.vue'
 import RoomView from './views/RoomView.vue'
+import FireworksCanvas from './components/FireworksCanvas.vue'
 
 const isApproved = computed(() => state.profile?.status === 'approved')
 const isPlatformAdmin = computed(() => state.profile?.is_platform_admin === true)
@@ -58,7 +59,9 @@ onMounted(initAuth)
         <div class="brand">
           <span>🎲</span>
           <span class="brand-name">Daily Bingo</span>
-          <span class="brand-sub" v-if="state.view === 'room' && state.room.data">{{ state.room.data.name }}</span>
+          <span class="brand-sub" v-if="state.view === 'room' && state.room.data">
+            {{ state.room.data.name }}<template v-if="state.room.round"> · Runde {{ state.room.round.round_no }}</template>
+          </span>
         </div>
 
         <span class="chip role plat" v-if="isPlatformAdmin">Plattform-Admin</span>
@@ -101,9 +104,13 @@ onMounted(initAuth)
       <div class="win-line">
         <span class="win-word" v-for="(w, i) in state.winner.words" :key="i">{{ w }}</span>
       </div>
-      <button class="btn btn-primary" @click="state.winner = null">Weiterspielen</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-primary" @click="closeWinnerModal">Weiterspielen</button>
+        <span class="mono" style="font-size:.72rem;color:var(--faint)">automatisch in {{ state.winner.countdown }}s</span>
+      </div>
     </div>
   </div>
 
+  <FireworksCanvas />
   <div class="toast" v-if="state.toast">{{ state.toast }}</div>
 </template>

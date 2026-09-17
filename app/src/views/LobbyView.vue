@@ -13,7 +13,7 @@ import {
   enterRoom,
   loadLobby,
 } from '../store'
-import { visLabel } from '../lib/helpers'
+import { visLabel, modeLabel, hueFor, initials } from '../lib/helpers'
 
 const codeDraft = ref({})
 
@@ -56,6 +56,16 @@ function join(room) {
         <p>{{ r.description || '—' }}</p>
         <div class="meta">
           <span class="chip mono">{{ visLabel(r.visibility) }}</span>
+          <span class="chip mono" v-if="state.roomModes[r.id]">{{ modeLabel(state.roomModes[r.id]) }}</span>
+          <span class="chip mono">{{ (state.roomFacepile[r.id] || []).length }} Mitglieder</span>
+        </div>
+        <div class="facepile">
+          <span
+            v-for="(p, pi) in (state.roomFacepile[r.id] || []).slice(0, 8)"
+            :key="pi"
+            class="avatar xs"
+            :style="{ background: hueFor(p) }"
+          >{{ initials(p?.nickname) }}</span>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-primary btn-sm btn-block" @click="enterRoom(r.id)">Spielen</button>
